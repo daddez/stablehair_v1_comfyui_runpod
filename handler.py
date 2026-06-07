@@ -17,22 +17,41 @@ COMFYUI_PORT = "8188"
 COMFYUI_URL = f"http://127.0.0.1:{COMFYUI_PORT}"
 
 def start_comfyui():
-    """Avvia ComfyUI in background con timer anti-blocco."""
+    """Avvia ComfyUI intercettando i log per la diagnostica integrale."""
     print(f"Avvio ComfyUI dalla cartella: {COMFYUI_DIR}...")
+    log_file_path = "/tmp/comfyui_startup.log"
+    
+    # Avviamo il processo incanalando Output ed Errori nel file di log
+    log_file = open(log_file_path, "w", encoding="utf-8")
     cmd = [PYTHON_EXECUTABLE, "main.py", "--listen", "127.0.0.1", "--port", COMFYUI_PORT]
-    subprocess.Popen(cmd, cwd=COMFYUI_DIR)
+    process = subprocess.Popen(cmd, cwd=COMFYUI_DIR, stdout=log_file, stderr=subprocess.STDOUT)
 
-    print("In attesa dell'avvio di ComfyUI locale...")
-    for _ in range(60):
+    print("In attesa dell'avvio di ComfyUI locale (Timeout 120s)...")
+    for _ in range(120):
+        # Controllo se il processo è morto prematuramente (Crash istantaneo)
+        if process.poll() is not None:
+            log_file.close()
+            # Lettura integrale blindata contro i caratteri ANSI anomali
+            with open(log_file_path, "r", encoding="utf-8", errors="replace") as f:
+                error_log = f.read()
+            raise RuntimeError(f"ComfyUI si è schiantato in fase di avvio.\n\n=== INIZIO LOG INTEGRALE ===\n{error_log}\n=== FINE LOG INTEGRALE ===")
+
+        # Controllo rete
         try:
             response = requests.get(f"{COMFYUI_URL}/system_stats", timeout=1)
             if response.status_code == 200:
                 print("ComfyUI operativo e pronto a elaborare.")
+                log_file.close()
                 return
         except requests.exceptions.RequestException:
             pass
         time.sleep(1)
-    raise RuntimeError("TIMEOUT CRITICO: ComfyUI non ha risposto entro 60 secondi.")
+    
+    # Se il ciclo finisce, c'è stato un Timeout.
+    log_file.close()
+    with open(log_file_path, "r", encoding="utf-8", errors="replace") as f:
+        error_log = f.read()
+    raise RuntimeError(f"TIMEOUT CRITICO: Nessuna risposta entro 120s.\n\n=== INIZIO LOG INTEGRALE ===\n{error_log}\n=== FINE LOG INTEGRALE ===")
 
 def get_image(filename, subfolder, folder_type):
     """Scarica l'immagine dalla cache di ComfyUI."""

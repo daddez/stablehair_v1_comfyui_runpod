@@ -6,7 +6,6 @@ import os
 import base64
 import urllib.request
 import urllib.parse
-import shutil
 
 # ==========================================
 # CONFIGURAZIONE PERCORSI
@@ -16,136 +15,129 @@ PYTHON_EXECUTABLE = "python"
 COMFYUI_PORT = "8188"
 COMFYUI_URL = f"http://127.0.0.1:{COMFYUI_PORT}"
 
-# Directory Effimere (RAM/Disco Locale isolato del container)
-TEMP_INPUT_DIR = "/tmp/input"
-TEMP_OUTPUT_DIR = "/tmp/output"
-
 def start_comfyui():
-    """Avvia ComfyUI deviando l'input/output sullo storage temporaneo del container."""
+    """Avvia ComfyUI in background con timer anti-blocco."""
     print(f"Avvio ComfyUI dalla cartella: {COMFYUI_DIR}...")
-    
-    # Assicura l'esistenza delle directory effimere prima dell'avvio
-    os.makedirs(TEMP_INPUT_DIR, exist_ok=True)
-    os.makedirs(TEMP_OUTPUT_DIR, exist_ok=True)
-    
-    # Argomenti CLI aggiunti per dirottare I/O
-    cmd = [
-        PYTHON_EXECUTABLE, "main.py", 
-        "--listen", "127.0.0.1", 
-        "--port", COMFYUI_PORT,
-        "--input-directory", TEMP_INPUT_DIR,
-        "--output-directory", TEMP_OUTPUT_DIR
-    ]
+    cmd = [PYTHON_EXECUTABLE, "main.py", "--listen", "127.0.0.1", "--port", COMFYUI_PORT]
     subprocess.Popen(cmd, cwd=COMFYUI_DIR)
 
     print("In attesa dell'avvio di ComfyUI locale...")
-    while True:
+    for _ in range(60):
         try:
             response = requests.get(f"{COMFYUI_URL}/system_stats", timeout=1)
             if response.status_code == 200:
-                print("ComfyUI è operativo e pronto a elaborare.")
-                break
-        except requests.exceptions.ConnectionError:
+                print("ComfyUI operativo e pronto a elaborare.")
+                return
+        except requests.exceptions.RequestException:
             pass
         time.sleep(1)
+    raise RuntimeError("TIMEOUT CRITICO: ComfyUI non ha risposto entro 60 secondi.")
 
 def get_image(filename, subfolder, folder_type):
-    """Scarica l'immagine appena generata dalla cache di ComfyUI (che ora legge da /tmp/output)."""
+    """Scarica l'immagine dalla cache di ComfyUI."""
     data = {"filename": filename, "subfolder": subfolder, "type": folder_type}
     url_values = urllib.parse.urlencode(data)
     with urllib.request.urlopen(f"{COMFYUI_URL}/view?{url_values}") as response:
         return response.read()
 
 def handler(job):
-    """Gestore delle richieste Serverless con pulizia automatica."""
     job_input = job['input']
-    
     workflow = job_input.get('workflow', {})
     if not workflow:
          return {"error": "Nessun workflow fornito nell'input."}
 
-    # Assicura l'esistenza delle directory a ogni chiamata (in caso di instabilità del file system)
-    os.makedirs(TEMP_INPUT_DIR, exist_ok=True)
-    os.makedirs(TEMP_OUTPUT_DIR, exist_ok=True)
+    input_images = job_input.get('input_images', {})
+    input_dir = os.path.join(COMFYUI_DIR, "input")
+    output_dir = os.path.join(COMFYUI_DIR, "output")
+    os.makedirs(input_dir, exist_ok=True)
+    
+    # Registro tracciamento per Garbage Collection
+    tracciato_file_generati = []
 
     try:
         # =======================================================
-        # 0. SALVATAGGIO IMMAGINI IN INGRESSO (IN MEMORIA EFFIMERA)
+        # 1. Salvataggio su disco (Cartella nativa)
         # =======================================================
-        input_images = job_input.get('input_images', {})
-        
         for filename, b64_data in input_images.items():
-            filepath = os.path.join(TEMP_INPUT_DIR, filename)
+            filepath = os.path.join(input_dir, filename)
             with open(filepath, "wb") as f:
                 f.write(base64.b64decode(b64_data))
-            print(f"Immagine di input salvata in effimero: {filename}")
+            tracciato_file_generati.append(filepath)
 
         # =======================================================
-        # 1. INVIA WORKFLOW E ATTENDI
+        # 2. Trasmissione Payload a ComfyUI
         # =======================================================
-        print("Inviando il prompt a ComfyUI...")
         prompt_req = requests.post(f"{COMFYUI_URL}/prompt", json={"prompt": workflow}).json()
-        
         if 'prompt_id' not in prompt_req:
             return {"error": f"Errore API ComfyUI: {prompt_req}"}
             
         prompt_id = prompt_req['prompt_id']
 
-        print(f"Attendendo il completamento (ID Lavoro: {prompt_id})...")
+        # =======================================================
+        # 3. Intercettazione stato e Anti-Loop
+        # =======================================================
+        timeout_anomalia = 0
         while True:
             history_req = requests.get(f"{COMFYUI_URL}/history/{prompt_id}").json()
             if prompt_id in history_req:
                 history = history_req[prompt_id]
                 break
+            
+            # Verifica integrità della coda
+            queue_req = requests.get(f"{COMFYUI_URL}/queue").json()
+            pending = [p[1] for p in queue_req.get('queue_pending', [])]
+            running = [p[1] for p in queue_req.get('queue_running', [])]
+            
+            # Condizione di scarto dal motore di inferenza
+            if prompt_id not in pending and prompt_id not in running and prompt_id not in history_req:
+                timeout_anomalia += 1
+                if timeout_anomalia >= 5:
+                    return {"error": "Workflow fallito internamente a ComfyUI (possibile nodo o file mancante). Elaborazione interrotta."}
+            else:
+                timeout_anomalia = 0
+                
             time.sleep(1)
 
         # =======================================================
-        # 2. ESTRAI E CODIFICA OUTPUT
+        # 4. Estrazione ed elaborazione Output
         # =======================================================
-        output_images = []
+        output_images_b64 = []
         for node_id in history['outputs']:
             node_output = history['outputs'][node_id]
             if 'images' in node_output:
                 for image in node_output['images']:
                     image_data = get_image(image['filename'], image['subfolder'], image['type'])
+                    
+                    # Tracciamento file di output per la distruzione
+                    sub_dir = image['subfolder'] if image['subfolder'] else ''
+                    out_filepath = os.path.join(output_dir, sub_dir, image['filename'])
+                    tracciato_file_generati.append(out_filepath)
+                    
                     base64_image = base64.b64encode(image_data).decode('utf-8')
-                    output_images.append({
+                    output_images_b64.append({
                         "filename": image['filename'],
                         "image_base64": base64_image
                     })
 
-        # Il return avviene solo dopo che il blocco finally è stato eseguito
-        return {"status": "success", "images": output_images}
+        return {"status": "success", "images": output_images_b64}
 
     except Exception as e:
-        return {"error": f"Eccezione durante l'elaborazione: {str(e)}"}
+        return {"error": f"Errore infrastrutturale: {str(e)}"}
 
     finally:
         # =======================================================
-        # 3. PULIZIA FORZATA (GARBAGE COLLECTION)
+        # 5. Distruzione dei media isolati
         # =======================================================
-        # Questo blocco viene eseguito tassativamente alla fine di ogni singola chiamata,
-        # indipendentemente dal fatto che l'inferenza abbia avuto successo o generato un errore.
-        print("Esecuzione pulizia memoria effimera post-inferenza...")
-        for directory in [TEMP_INPUT_DIR, TEMP_OUTPUT_DIR]:
-            if os.path.exists(directory):
-                for filename in os.listdir(directory):
-                    file_path = os.path.join(directory, filename)
-                    try:
-                        if os.path.isfile(file_path) or os.path.islink(file_path):
-                            os.unlink(file_path)
-                        elif os.path.isdir(file_path):
-                            shutil.rmtree(file_path)
-                    except Exception as e:
-                        print(f"Impossibile eliminare {file_path}. Motivo: {e}")
+        for fpath in tracciato_file_generati:
+            try:
+                if os.path.exists(fpath):
+                    os.remove(fpath)
+            except OSError:
+                pass
 
-# ==========================================
-# ESECUZIONE PRINCIPALE
-# ==========================================
 if __name__ == "__main__":
     if not os.path.exists(COMFYUI_DIR):
-        print(f"ERRORE CRITICO: La cartella {COMFYUI_DIR} non esiste.")
-        print("Il Network Volume non è montato o il percorso è errato.")
+        print(f"ERRORE CRITICO: La cartella {COMFYUI_DIR} è assente.")
     else:
         start_comfyui()
         runpod.serverless.start({"handler": handler})

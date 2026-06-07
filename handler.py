@@ -137,9 +137,32 @@ def handler(job):
             except OSError:
                 pass
 
+# ==========================================
+# ESECUZIONE PRINCIPALE E GESTIONE AVARIA
+# ==========================================
+comfyui_operativo = False
+messaggio_avaria = ""
+
 if __name__ == "__main__":
     if not os.path.exists(COMFYUI_DIR):
-        print(f"ERRORE CRITICO: La cartella {COMFYUI_DIR} è assente.")
+        messaggio_avaria = f"Volume di rete assente in {COMFYUI_DIR}."
+        print(f"ERRORE CRITICO: {messaggio_avaria}")
     else:
-        start_comfyui()
-        runpod.serverless.start({"handler": handler})
+        try:
+            start_comfyui()
+            comfyui_operativo = True
+        except Exception as e:
+            messaggio_avaria = f"Crash di ComfyUI all'avvio: {str(e)}"
+            print(f"ERRORE FATALE INTERCETTATO: {messaggio_avaria}")
+            # L'eccezione è isolata. Il processo Python non si interrompe.
+
+    def safe_handler(job):
+        """Wrapper di sicurezza: scarta i job se il motore è spento, forzando lo spegnimento del worker."""
+        if not comfyui_operativo:
+            return {"error": f"Worker in avaria permanente. Elaborazione disabilitata. Dettagli: {messaggio_avaria}"}
+        
+        # Se tutto funziona, passa il job al tuo handler originale
+        return handler(job)
+
+    # Avviamo il listener Serverless agganciandolo al safe_handler
+    runpod.serverless.start({"handler": safe_handler})

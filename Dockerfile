@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
 # ==========================================
 # 3. BLINDATURA PYTORCH (CUDA 12.1 Universale)
 # ==========================================
-RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 # 4. Installazione di tutte le altre librerie
 COPY requirements.txt /requirements.txt

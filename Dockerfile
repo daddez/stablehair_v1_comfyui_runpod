@@ -12,20 +12,17 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# ==========================================
-# 3. BLINDATURA PYTORCH (CUDA 12.1 Universale)
-# ==========================================
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# 4. Installazione di tutte le altre librerie
+# 3. Installazione massiva e blindata
+# Il flag extra-index-url è ora integrato nel file di testo
 COPY requirements.txt /requirements.txt
-RUN pip install --no-cache-dir -r /requirements.txt --extra-index-url https://download.pytorch.org/whl/cu118
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+RUN pip install --no-cache-dir -r /requirements.txt
 
-# 5. Dipendenze Serverless
+# 4. Dipendenze Serverless
 RUN pip install --no-cache-dir runpod requests
 
-# 6. Copiamo l'handler
+# 5. Copiamo l'handler
 COPY handler.py /handler.py
 
-# 7. Avvio
+# 6. Avvio
 CMD ["python", "-u", "/handler.py"]

@@ -19,7 +19,7 @@ RUN pip install torch torchvision torchaudio --index-url https://download.pytorc
 
 # 4. Installazione di tutte le altre librerie
 COPY requirements.txt /requirements.txt
-RUN pip install --no-cache-dir -r /requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+RUN pip install --no-cache-dir -r /requirements.txt --extra-index-url https://download.pytorch.org/whl/cu118
 
 # 5. Dipendenze Serverless
 RUN pip install --no-cache-dir runpod requests

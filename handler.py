@@ -6,6 +6,7 @@ import os
 import base64
 import urllib.request
 import urllib.parse
+import shutil
 
 # ==========================================
 # CONFIGURAZIONE PERCORSI
@@ -57,6 +58,7 @@ def handler(job):
     try:
         # =======================================================
         # 1. Salvataggio su disco (Cartella nativa)
+        # Il client ha già iniettato l'UUID nel nome del file
         # =======================================================
         for filename, b64_data in input_images.items():
             filepath = os.path.join(input_dir, filename)

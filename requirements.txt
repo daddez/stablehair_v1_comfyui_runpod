@@ -1,0 +1,80 @@
+# ==============================================================================
+# SUPER REQUIREMENTS: COMFYUI CORE + CUSTOM NODES
+# ==============================================================================
+
+# --- Core ComfyUI Requirements ---
+comfyui-frontend-package==1.41.21
+comfyui-workflow-templates==0.9.36
+comfyui-embedded-docs==0.4.3
+torchsde
+numpy>=1.25.0
+einops
+# RISOLUZIONE CONFLITTO: Accontenta sia ComfyUI base che StableHair
+transformers>=4.50.3,<5.0.0
+tokenizers>=0.13.3
+sentencepiece
+safetensors>=0.4.2
+aiohttp>=3.11.8
+yarl>=1.18.0
+pyyaml
+Pillow>=10.3.0
+scipy
+tqdm
+psutil
+alembic
+SQLAlchemy
+filelock
+av>=14.2.0
+comfy-kitchen>=0.2.8
+comfy-aimdo>=0.2.12
+requests
+simpleeval>=1.0.0
+blake3
+kornia>=0.7.1
+spandrel
+pydantic~=2.0
+pydantic-settings~=2.0
+PyOpenGL
+glfw
+
+# --- Custom Nodes: ComfyUI_StableHair_ll ---
+diffusers>=0.27.2
+huggingface-hub>=0.23.0
+sympy
+accelerate
+xformers
+
+# --- Custom Nodes: ComfyUI-Easy-Use ---
+clip_interrogator>=0.6.0
+lark
+onnxruntime
+opencv-python-headless
+peft
+
+# --- Custom Nodes: ComfyUI-KJNodes ---
+color-matcher
+mss
+
+# --- Custom Nodes: ComfyUI-Facerestore-Tensorrt ---
+tensorrt==10.4.0
+polygraphy
+colored
+
+# --- Custom Nodes: facerestore_cf ---
+addict
+future
+lmdb
+scikit-image
+yapf
+lpips
+gdown
+
+# --- Custom Nodes: ComfyUI-Manager ---
+GitPython
+PyGithub
+matrix-nio
+typer
+rich
+toml
+uv
+chardet
